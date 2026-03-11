@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAM · Feedback Intelligence — Ollama</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset & Variables ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --red:      #CC1236;
+  --red-dark: #8B0020;
+  --gold:     #C9922B;
+  --gold-dim: rgba(201,146,43,0.15);
+  --dark:     #080810;
+  --deep:     #0F0F1A;
+  --card:     #141420;
+  --card2:    #1C1C2E;
+  --border:   rgba(201,146,43,0.18);
+  --border2:  rgba(255,255,255,0.07);
+  --text:     #ECE8DF;
+  --muted:    #7A7060;
+  --green:    #27AE60;
+  --orange:   #E67E22;
+  --purple:   #8E44AD;
+  --blue:     #2980B9;
+  --danger:   #E74C3C;
+  --warn:     #F39C12;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--dark);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* Atmospheric BG */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 45% at 5%  5%,  rgba(204,18,54,0.07)   0%, transparent 55%),
+    radial-gradient(ellipse 55% 35% at 95% 85%, rgba(201,146,43,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(20,20,40,0.6)     0%, transparent 70%);
+}
+
+/* Fine grain overlay */
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity: 0.4;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────── */
+header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 40px; height: 70px;
+  background: rgba(8,8,16,0.85);
+  backdrop-filter: blur(20px) saturate(150%);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  display: flex; align-items: center; gap: 14px;
+  text-decoration: none;
+}
+
+.logo-mark {
+  width: 42px; height: 42px;
+  background: linear-gradient(135deg, var(--red) 0%, var(--red-dark) 100%);
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 4px 18px rgba(204,18,54,0.45), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+
+.logo-info { display: flex; flex-direction: column; gap: 1px; }
+
+.logo-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 16px; font-weight: 700;
+  color: var(--text);
+}
+
+.logo-tagline {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--gold);
+}
+
+.header-right { display: flex; align-items: center; gap: 12px; }
+
+.status-badge {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  background: var(--gold-dim);
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--gold);
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.status-badge:hover { background: rgba(201,146,43,0.22); }
+
+.status-badge.healthy { color: var(--green); background: rgba(39,174,96,0.1); border-color: rgba(39,174,96,0.25); }
+.status-badge.error   { color: var(--danger); background: rgba(231,76,60,0.1); border-color: rgba(231,76,60,0.25); }
+
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: blink 2.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────────── */
+.page {
+  position: relative; z-index: 5;
+  max-width: 1380px; margin: 0 auto;
+  padding: 44px 40px 60px;
+  display: grid;
+  grid-template-columns: 520px 1fr;
+  gap: 36px;
+  align-items: start;
+}
+
+/* ─── Left Panel ─────────────────────────────────────────────────────── */
+.left { display: flex; flex-direction: column; gap: 26px; }
+
+.hero-heading {
+  font-family: 'Playfair Display', serif;
+  font-size: 38px; font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -0.5px;
+}
+
+.hero-heading em {
+  font-style: normal;
+  background: linear-gradient(105deg, var(--red) 0%, var(--gold) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-sub {
+  font-size: 14.5px; color: var(--muted);
+  line-height: 1.75; margin-top: -10px;
+}
+
+/* Input Card */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 26px;
+  position: relative; overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 50%, transparent 100%);
+  opacity: 0.5;
+}
+
+.field-label {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--gold);
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px;
+}
+
+textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14.5px; line-height: 1.75;
+  padding: 16px 18px;
+  resize: vertical;
+  min-height: 165px;
+  transition: border-color .3s, box-shadow .3s;
+  outline: none;
+}
+
+textarea:focus {
+  border-color: rgba(204,18,54,0.35);
+  box-shadow: 0 0 0 3px rgba(204,18,54,0.07);
+}
+
+textarea::placeholder { color: var(--muted); font-style: italic; }
+
+/* Char Counter */
+.char-counter {
+  text-align: right; font-size: 11px;
+  color: var(--muted); margin-top: 6px;
+}
+
+/* Samples */
+.samples-title {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px; margin-top: 18px;
+}
+
+.samples { display: flex; flex-direction: column; gap: 7px; }
+
+.sample {
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 11px 14px 11px 30px;
+  color: var(--muted); font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px; line-height: 1.45;
+  cursor: pointer; text-align: left;
+  position: relative; transition: all .22s;
+}
+
+.sample::before {
+  content: '→';
+  position: absolute; left: 11px;
+  color: var(--gold); font-size: 11px;
+  top: 50%; transform: translateY(-50%);
+}
+
+.sample:hover {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(201,146,43,0.05);
+}
+
+/* CTA Button */
+.btn-analyze {
+  width: 100%; padding: 17px 28px;
+  background: linear-gradient(135deg, var(--red) 0%, var(--red-dark) 100%);
+  border: none; border-radius: 14px;
+  color: #fff; font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 600; letter-spacing: .3px;
+  cursor: pointer; transition: all .3s;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  box-shadow: 0 6px 28px rgba(204,18,54,.38);
+  position: relative; overflow: hidden;
+}
+
+.btn-analyze::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, transparent, rgba(255,255,255,.08), transparent);
+  opacity: 0; transition: opacity .3s;
+}
+
+.btn-analyze:hover:not(:disabled)::after { opacity: 1; }
+.btn-analyze:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 38px rgba(204,18,54,.5);
+}
+.btn-analyze:active:not(:disabled) { transform: translateY(0); }
+.btn-analyze:disabled { opacity: .45; cursor: not-allowed; }
+
+.spinner {
+  width: 17px; height: 17px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+  display: none; flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.btn-hint {
+  text-align: center; font-size: 11px;
+  color: var(--muted); margin-top: -10px;
+}
+
+/* ─── Right Panel ────────────────────────────────────────────────────── */
+.right { display: flex; flex-direction: column; gap: 18px; }
+
+.panel-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 4px;
+}
+
+.panel-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 21px; font-weight: 700;
+}
+
+.actions { display: flex; gap: 8px; }
+
+.btn-sm {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--muted); font-family: 'DM Sans', sans-serif;
+  font-size: 11.5px; cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; gap: 6px;
+}
+
+.btn-sm:hover { border-color: var(--gold); color: var(--gold); }
+
+/* Empty State */
+.empty {
+  background: var(--card);
+  border: 1px dashed rgba(255,255,255,.08);
+  border-radius: 20px; padding: 56px 40px;
+  display: flex; flex-direction: column;
+  align-items: center; text-align: center; gap: 14px;
+}
+
+.empty-orb {
+  width: 68px; height: 68px;
+  background: radial-gradient(circle at center, rgba(201,146,43,.12), transparent 70%);
+  border: 1px solid rgba(201,146,43,.2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30px;
+}
+
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+.empty-desc  { font-size: 13.5px; color: var(--muted); line-height: 1.65; max-width: 340px; }
+
+/* ─── Result Cards ───────────────────────────────────────────────────── */
+.results { display: flex; flex-direction: column; gap: 14px; }
+
+.rc {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 20px 22px;
+  animation: rise .4s ease both;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.rc:nth-child(1)  { animation-delay: .04s; }
+.rc:nth-child(2)  { animation-delay: .09s; }
+.rc:nth-child(3)  { animation-delay: .14s; }
+.rc:nth-child(4)  { animation-delay: .19s; }
+.rc:nth-child(5)  { animation-delay: .24s; }
+.rc:nth-child(6)  { animation-delay: .29s; }
+
+.rc-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+
+.rc-icon {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+
+.rc-label {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Sentiment */
+.sentiment-row { display: flex; align-items: center; gap: 14px; }
+
+.s-pill {
+  padding: 8px 22px; border-radius: 50px;
+  font-size: 14.5px; font-weight: 700; letter-spacing: .3px;
+}
+
+.s-pill.negatif { background: rgba(231,76,60,.12); color: #E74C3C; border: 1px solid rgba(231,76,60,.28); }
+.s-pill.positif { background: rgba(39,174,96,.12);  color: #2ECC71; border: 1px solid rgba(39,174,96,.28); }
+.s-pill.neutre  { background: rgba(149,165,166,.12);color: #95A5A6; border: 1px solid rgba(149,165,166,.28); }
+
+.s-emoji { font-size: 26px; }
+
+/* Tags */
+.tags { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.tag {
+  padding: 5px 13px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 500;
+  border: 1px solid;
+}
+
+.tag.em-col  { background: rgba(231,76,60,.09);  color: #E74C3C; border-color: rgba(231,76,60,.22); }
+.tag.em-fru  { background: rgba(230,126,34,.09); color: #E67E22; border-color: rgba(230,126,34,.22); }
+.tag.em-dec  { background: rgba(142,68,173,.09); color: #8E44AD; border-color: rgba(142,68,173,.22); }
+.tag.em-sat  { background: rgba(39,174,96,.09);  color: #27AE60; border-color: rgba(39,174,96,.22); }
+.tag.em-gra  { background: rgba(41,128,185,.09); color: #2980B9; border-color: rgba(41,128,185,.22); }
+.tag.em-def  { background: rgba(255,255,255,.05);color: var(--text);border-color: var(--border2); }
+
+.tag.topic   { background: rgba(201,146,43,.08); color: var(--gold); border-color: rgba(201,146,43,.2); }
+
+/* Cluster */
+.cluster-row { display: flex; align-items: center; gap: 13px; }
+.cluster-emoji { font-size: 26px; }
+.cluster-name  { font-size: 15px; font-weight: 600; }
+
+/* Meta Grid */
+.meta-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.meta-item {
+  background: rgba(255,255,255,.025);
+  border: 1px solid var(--border2);
+  border-radius: 11px; padding: 13px 14px;
+}
+
+.meta-key {
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 5px;
+}
+
+.meta-val { font-size: 13.5px; font-weight: 500; }
+
+.u-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 11px; border-radius: 6px;
+  font-size: 12.5px; font-weight: 700;
+}
+
+.u-pill.elevee  { background: rgba(231,76,60,.12); color: #E74C3C; }
+.u-pill.moyenne { background: rgba(243,156,18,.12); color: #F39C12; }
+.u-pill.faible  { background: rgba(39,174,96,.12);  color: #27AE60; }
+
+.meta-full { grid-column: 1 / -1; }
+
+/* JSON Output Block */
+.json-card {
+  background: #0A0A12;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 15px; overflow: hidden;
+}
+
+.json-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+
+.json-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+}
+
+.json-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+
+.json-copy-btn {
+  background: transparent; border: none;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11.5px; color: var(--muted);
+  cursor: pointer; padding: 4px 8px;
+  border-radius: 6px; transition: color .2s;
+}
+.json-copy-btn:hover { color: var(--gold); }
+
+pre {
+  padding: 18px 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; line-height: 1.85;
+  max-height: 300px; overflow-y: auto;
+  overflow-x: auto;
+  color: #98D48C;
+}
+
+pre::-webkit-scrollbar { width: 5px; height: 5px; }
+pre::-webkit-scrollbar-track { background: transparent; }
+pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+
+.j-key  { color: #89CFF0; }
+.j-str  { color: #F5DEB3; }
+.j-arr  { color: #CDA9E8; }
+.j-num  { color: #98D48C; }
+.j-bool { color: #F09C5A; }
+
+/* Loading */
+.loading-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 48px 36px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 18px; text-align: center;
+}
+
+.loading-ring {
+  width: 52px; height: 52px;
+  border: 3px solid rgba(204,18,54,.18);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin .9s linear infinite;
+}
+
+.loading-label { font-size: 15px; font-weight: 500; }
+.loading-hint  { font-size: 12.5px; color: var(--muted); }
+
+/* Error */
+.error-card {
+  background: rgba(231,76,60,.06);
+  border: 1px solid rgba(231,76,60,.22);
+  border-radius: 16px; padding: 22px 24px;
+  font-size: 14px; color: #E74C3C; line-height: 1.65;
+}
+
+.error-card code {
+  display: block; margin-top: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px; color: rgba(231,76,60,.7);
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* ─── Footer ─────────────────────────────────────────────────────────── */
+footer {
+  position: relative; z-index: 5;
+  text-align: center; padding: 24px 40px 30px;
+  font-size: 11px; letter-spacing: 1px;
+  color: rgba(122,112,96,.45);
+  border-top: 1px solid rgba(255,255,255,.04);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .page { grid-template-columns: 1fr; padding: 24px 20px 48px; gap: 28px; }
+  header { padding: 0 20px; }
+  .hero-heading { font-size: 30px; }
+  .right { position: static; }
+  .meta-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <a class="logo" href="#">
+    <div class="logo-mark">✈</div>
+    <div class="logo-info">
+      <div class="logo-name">Royal Air Maroc</div>
+      <div class="logo-tagline">Feedback Intelligence</div>
+    </div>
+  </a>
+
+  <div class="header-right">
+    <div class="status-badge" id="statusBadge" onclick="checkHealth()" title="Cliquez pour tester la connexion Ollama">
+      <div class="dot"></div>
+      <span id="statusText">Vérification...</span>
+    </div>
+  </div>
+</header>
+
+<!-- ─── Main ────────────────────────────────────────────────────────────── -->
+<div class="page">
+
+  <!-- LEFT -->
+  <div class="left">
+
+    <div>
+      <div class="hero-heading">Analyse <em>Intelligente</em><br>des Feedbacks</div>
+      <p class="hero-sub">
+        Moteur d'analyse IA local via <strong style="color:var(--gold)">Ollama llama3.1</strong> —
+        sentiment, émotions, thèmes et recommandations en quelques secondes.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="field-label">💬 Feedback passager</div>
+      <textarea
+        id="feedbackText"
+        placeholder="Collez ici un feedback, une réclamation ou un avis passager RAM…"
+        oninput="updateCounter()"
+        onkeydown="handleKey(event)"
+      ></textarea>
+      <div class="char-counter"><span id="charCount">0</span> caractères · <kbd style="font-family:inherit;font-size:10px;opacity:.5">Ctrl+Entrée</kbd> pour analyser</div>
+
+      <div class="samples-title">Exemples de feedbacks</div>
+      <div class="samples">
+        <button class="sample" onclick="loadSample(0)">
+          Vol AT-302 annulé sans préavis, aucun remboursement reçu après 3 semaines. Je suis client Gold depuis 10 ans, c'est inadmissible!
+        </button>
+        <button class="sample" onclick="loadSample(1)">
+          Équipage CDG-CMN extraordinaire, très attentionné. Repas délicieux et vol à l'heure. Je recommande vivement Royal Air Maroc!
+        </button>
+        <button class="sample" onclick="loadSample(2)">
+          Ma valise est perdue depuis 5 jours après correspondance à Casablanca. J'ai un RDV professionnel urgent et tous mes documents sont dedans.
+        </button>
+        <button class="sample" onclick="loadSample(3)">
+          رحلتي من الدار البيضاء إلى دبي تأخرت 4 ساعات دون أي توضيح. الطاقم كان غير محترف ولم يقدم أي مساعدة للمسافرين.
+        </button>
+      </div>
+    </div>
+
+    <button class="btn-analyze" id="analyzeBtn" onclick="analyze()">
+      <div class="spinner" id="spinner"></div>
+      <span id="btnLabel">🔍&nbsp; Analyser le feedback</span>
+    </button>
+    <div class="btn-hint">Modèle local : llama3.1 via Ollama · Port 11434</div>
+
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right">
+    <div class="panel-bar">
+      <div class="panel-title">Résultats d'analyse</div>
+      <div class="actions" id="actionsBar" style="display:none">
+        <button class="btn-sm" onclick="copyJson()">📋 Copier JSON</button>
+        <button class="btn-sm" onclick="downloadJson()">⬇ Télécharger</button>
+      </div>
+    </div>
+
+    <div id="output">
+      <div class="empty">
+        <div class="empty-orb">🧠</div>
+        <div class="empty-title">En attente d'un feedback</div>
+        <div class="empty-desc">
+          Saisissez ou copiez un feedback passager à gauche, puis cliquez sur
+          <strong style="color:var(--text)">Analyser</strong> pour obtenir l'analyse complète.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ─── Footer ──────────────────────────────────────────────────────────── -->
+<footer>
+  Royal Air Maroc · Feedback Intelligence v1.0 · Ollama llama3.1 · Backend FastAPI
+</footer>
+
+<!-- ─── Script ──────────────────────────────────────────────────────────── -->
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const API_BASE = "http://localhost:8000";
+
+const SAMPLES = [
+  "Mon vol AT-302 de Casablanca vers Paris a été annulé la veille du départ sans aucun préavis. J'ai découvert ça par hasard sur l'application. Cela fait maintenant 3 semaines et je n'ai toujours pas reçu mon remboursement de 850 euros. Je suis client Gold depuis 10 ans — c'est une honte absolue et j'envisage de porter plainte auprès des autorités compétentes!",
+  "Je souhaitais féliciter l'équipage du vol Casablanca-Paris d'hier soir. Le personnel de bord était remarquablement attentionné et souriant tout au long du voyage. Le repas servi était vraiment délicieux pour un vol moyen-courrier. Le vol est arrivé à l'heure. Bravo à toute l'équipe, vous m'avez rendu ce voyage très agréable!",
+  "Ma valise a été perdue lors de ma correspondance à l'aéroport Mohammed V de Casablanca. Cela fait maintenant 5 jours et malgré mes nombreux appels au service bagages, personne ne me rappelle jamais. J'ai un rendez-vous professionnel crucial demain et tous mes documents importants ainsi que mes vêtements de travail sont dans cette valise. C'est une situation très urgente.",
+  "رحلتي من الدار البيضاء إلى دبي تأخرت ما يقارب 4 ساعات دون أي توضيح من الشركة. الطاقم لم يكن محترفًا ولم يقدم أي مساعدة أو شرح للمسافرين الذين كانوا في حيرة تامة. أطلب تعويضًا عن هذا التأخير الكبير."
+];
+
+// ── State ─────────────────────────────────────────────────────────────────
+let lastResult = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  checkHealth();
+  updateCounter();
+});
+
+// ── Char counter ─────────────────────────────────────────────────────────
+function updateCounter() {
+  const v = document.getElementById('feedbackText').value;
+  document.getElementById('charCount').textContent = v.length;
+}
+
+// ── Keyboard shortcut ─────────────────────────────────────────────────────
+function handleKey(e) {
+  if (e.ctrlKey && e.key === 'Enter') analyze();
+}
+
+// ── Load sample ───────────────────────────────────────────────────────────
+function loadSample(i) {
+  document.getElementById('feedbackText').value = SAMPLES[i];
+  updateCounter();
+  document.getElementById('feedbackText').focus();
+}
+
+// ── Health Check ──────────────────────────────────────────────────────────
+async function checkHealth() {
+  const badge = document.getElementById('statusBadge');
+  const label = document.getElementById('statusText');
+  badge.className = 'status-badge';
+  label.textContent = 'Vérification...';
+  try {
+    const r = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(6000) });
+    const d = await r.json();
+    if (d.llama3_1_ready) {
+      badge.className = 'status-badge healthy';
+      label.textContent = 'llama3.1 prêt';
+    } else {
+      badge.className = 'status-badge error';
+      label.textContent = 'llama3.1 manquant';
+    }
+  } catch {
+    badge.className = 'status-badge error';
+    label.textContent = 'Ollama hors-ligne';
+  }
+}
+
+// ── Analyze ───────────────────────────────────────────────────────────────
+async function analyze() {
+  const text = document.getElementById('feedbackText').value.trim();
+  if (!text) {
+    document.getElementById('feedbackText').focus();
+    return;
+  }
+
+  // Loading state
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('btnLabel').textContent = 'Analyse en cours…';
+  document.getElementById('actionsBar').style.display = 'none';
+  lastResult = null;
+
+  showLoading();
+
+  try {
+    const res = await fetch(`${API_BASE}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(130_000)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || `Erreur HTTP ${res.status}`);
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Réponse invalide du backend');
+    }
+
+    lastResult = data.analysis;
+    renderResults(data.analysis, data.model_used);
+    document.getElementById('actionsBar').style.display = 'flex';
+
+  } catch (err) {
+    showError(err.message || String(err));
+  } finally {
+    btn.disabled = false;
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btnLabel').textContent = '🔍\u00A0 Analyser le feedback';
+  }
+}
+
+// ── UI Helpers ────────────────────────────────────────────────────────────
+function showLoading() {
+  document.getElementById('output').innerHTML = `
+    <div class="loading-card">
+      <div class="loading-ring"></div>
+      <div class="loading-label">Analyse llama3.1 en cours…</div>
+      <div class="loading-hint">Sentiment · Émotions · Thèmes · Recommandations</div>
+    </div>`;
+}
+
+function showError(msg) {
+  document.getElementById('output').innerHTML = `
+    <div class="error-card">
+      <strong>⚠ Erreur</strong> — ${escHtml(msg)}
+      <code>Vérifiez qu'Ollama tourne : ollama serve\nEt que le modèle est présent : ollama pull llama3.1\nEt que le backend FastAPI tourne : uvicorn main:app --reload</code>
+    </div>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function renderResults(r, modelUsed) {
+  const sentClass   = { 'Négatif':'negatif','Positif':'positif','Neutre':'neutre' }[r.sentiment] || 'neutre';
+  const sentEmoji   = { 'Négatif':'😠','Positif':'😊','Neutre':'😐' }[r.sentiment] || '😐';
+  const urgClass    = { 'Élevée':'elevee','Moyenne':'moyenne','Faible':'faible' }[r.urgency] || 'moyenne';
+  const clusterIcon = clusterEmoji(r.customer_cluster);
+
+  const emotionTags = (r.emotion || []).map(e => {
+    const cls = { 'Colère':'em-col','Frustration':'em-fru','Déception':'em-dec','Satisfaction':'em-sat','Gratitude':'em-gra' }[e] || 'em-def';
+    return `<span class="tag ${cls}">${e}</span>`;
+  }).join('');
+
+  const topicTags = (r.topics || []).map(t =>
+    `<span class="tag topic">🏷 ${escHtml(t)}</span>`
+  ).join('');
+
+  const jsonStr = JSON.stringify(r, null, 2);
+
+  document.getElementById('output').innerHTML = `
+  <div class="results">
+
+    <div class="rc">
+      <div class="rc-head">
+        <div class="rc-icon" style="background:rgba(204,18,54,.1)">📊</div>
+        <div class="rc-label">Sentiment global</div>
+      </div>
+      <div class="sentiment-row">
+        <span class="s-pill ${sentClass}">${escHtml(r.sentiment)}</span>
+        <span class="s-emoji">${sentEmoji}</span>
+      </div>
+    </div>
+
+    <div class="rc">
+      <div class="rc-head">
+        <div class="rc-icon" style="background:rgba(142,68,173,.1)">💡</div>
+        <div class="rc-label">Émotions dominantes</div>
+      </div>
+      <div class="tags">${emotionTags || '<span style="color:var(--muted);font-size:13px">—</span>'}</div>
+    </div>
+
+    <div class="rc">
+      <div class="rc-head">
+        <div class="rc-icon" style="background:rgba(201,146,43,.1)">🏷</div>
+        <div class="rc-label">Thèmes détectés</div>
+      </div>
+      <div class="tags">${topicTags || '<span style="color:var(--muted);font-size:13px">—</span>'}</div>
+    </div>
+
+    <div class="rc">
+      <div class="rc-head">
+        <div class="rc-icon" style="background:rgba(41,128,185,.1)">👤</div>
+        <div class="rc-label">Profil client</div>
+      </div>
+      <div class="cluster-row">
+        <span class="cluster-emoji">${clusterIcon}</span>
+        <span class="cluster-name">${escHtml(r.customer_cluster)}</span>
+      </div>
+    </div>
+
+    <div class="rc">
+      <div class="rc-head">
+        <div class="rc-icon" style="background:rgba(39,174,96,.1)">⚡</div>
+        <div class="rc-label">Informations complémentaires</div>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="meta-key">Urgence</div>
+          <div class="meta-val"><span class="u-pill ${urgClass}">${escHtml(r.urgency)}</span></div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-key">Canal</div>
+          <div class="meta-val">📱 ${escHtml(r.channel)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-key">Action recommandée</div>
+          <div class="meta-val">→ ${escHtml(r.recommended_action)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-key">Impact</div>
+          <div class="meta-val">⚠ ${escHtml(r.impact)}</div>
+        </div>
+        <div class="meta-item meta-full">
+          <div class="meta-key">Langue détectée</div>
+          <div class="meta-val">🌐 ${escHtml(r.language)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="json-card">
+      <div class="json-top">
+        <div class="json-badge"><div class="json-dot"></div> Sortie JSON brute</div>
+        <button class="json-copy-btn" onclick="copyJson()">Copier</button>
+      </div>
+      <pre>${highlight(jsonStr)}</pre>
+    </div>
+
+  </div>`;
+}
+
+// ── Syntax highlight ──────────────────────────────────────────────────────
+function highlight(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"([^"]+)":/g,       '<span class="j-key">"$1"</span>:')
+    .replace(/: "([^"]*)"/g,      ': <span class="j-str">"$1"</span>')
+    .replace(/: (true|false)/g,   ': <span class="j-bool">$1</span>')
+    .replace(/: (-?\d+\.?\d*)/g,  ': <span class="j-num">$1</span>');
+}
+
+// ── Cluster Emoji ──────────────────────────────────────────────────────────
+function clusterEmoji(c = '') {
+  if (c.includes('fréquents'))   return '🌟';
+  if (c.includes('premium'))     return '💎';
+  if (c.includes('satisfaits'))  return '✅';
+  if (c.includes('occasionnels'))return '👤';
+  return '🆕';
+}
+
+// ── Copy / Download ───────────────────────────────────────────────────────
+function copyJson() {
+  if (!lastResult) return;
+  navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2)).then(() => {
+    const btn = document.getElementById('actionsBar')?.querySelector('.btn-sm');
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copié!';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+function downloadJson() {
+  if (!lastResult) return;
+  const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), {
+    href: url,
+    download: `ram-feedback-${Date.now()}.json`
+  });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
